@@ -3,6 +3,7 @@ from flask_cors import CORS
 import requests
 import os
 import time
+import base64
 
 app = Flask(__name__)
 
@@ -15,11 +16,11 @@ PAYHERO_API_PASSWORD = os.getenv("PAYHERO_API_PASSWORD")
 PAYHERO_CHANNEL_ID = os.getenv("PAYHERO_CHANNEL_ID")
 CALLBACK_URL = os.getenv("CALLBACK_URL")
 
-PAYHERO_BASE_URL = "https://backend.payhero.co.ke/api/v2"
+PAYHERO_URL = "https://backend.payhero.co.ke/api/v2/payments"
 # ==================================================
 
 
-# ✅ Fix preflight (important for Vercel frontend)
+# ✅ Fix preflight (important for frontend)
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -31,33 +32,6 @@ def after_request(response):
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "OK", "service": "PayHero Backend"}), 200
-
-
-# ================== AUTH TOKEN ==================
-def get_access_token():
-    try:
-        url = f"{PAYHERO_BASE_URL}/oauth/token"
-
-        response = requests.post(
-            url,
-            auth=(PAYHERO_API_USERNAME, PAYHERO_API_PASSWORD),
-            data={"grant_type": "client_credentials"},
-            timeout=30
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-        token = data.get("access_token")
-
-        if not token:
-            raise Exception("No access token returned")
-
-        return token
-
-    except Exception as e:
-        print("❌ TOKEN ERROR:", str(e))
-        return None
 
 
 # ================== STK PUSH ==================
@@ -77,34 +51,32 @@ def stk_push():
         if not phone or not amount:
             return jsonify({"error": "phone and amount are required"}), 400
 
-        # ✅ Format phone to 254...
+        # ✅ Format phone to 254XXXXXXXXX
         if phone.startswith("0"):
             phone = "254" + phone[1:]
 
-        # ================= TOKEN =================
-        access_token = get_access_token()
+        # ================= AUTH (Basic) =================
+        auth_string = f"{PAYHERO_API_USERNAME}:{PAYHERO_API_PASSWORD}"
+        encoded_auth = base64.b64encode(auth_string.encode()).decode()
 
-        if not access_token:
-            return jsonify({"error": "Failed to get access token"}), 500
+        headers = {
+            "Authorization": f"Basic {encoded_auth}",
+            "Content-Type": "application/json"
+        }
 
-        # ================= STK PUSH =================
-        url = f"{PAYHERO_BASE_URL}/payments"
-
+        # ================= PAYLOAD =================
         payload = {
             "amount": int(amount),
             "phone_number": phone,
             "account_reference": reference,
             "transaction_desc": f"Payment by {customer_name}",
+            "channel_id": PAYHERO_CHANNEL_ID,
             "callback_url": CALLBACK_URL
         }
 
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
-        }
-
+        # ================= REQUEST =================
         response = requests.post(
-            url,
+            PAYHERO_URL,
             json=payload,
             headers=headers,
             timeout=30
@@ -134,7 +106,6 @@ def payhero_callback():
     print(data)
 
     try:
-        # PayHero usually sends status + transaction info
         status = data.get("status")
 
         if status == "success":
