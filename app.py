@@ -62,8 +62,8 @@ def stk_push():
         }
 
         # ✅ ONLY include channel_id if provided
-        #if PAYHERO_CHANNEL_ID:
-            #payload["channel_id"] = int(PAYHERO_CHANNEL_ID)
+        if PAYHERO_CHANNEL_ID:
+            payload["channel_id"] = int(PAYHERO_CHANNEL_ID)
 
         # ================= REQUEST =================
         response = requests.post(
