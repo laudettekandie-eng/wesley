@@ -71,7 +71,7 @@ def stk_push():
             "account_reference": reference,
             "transaction_desc": f"Payment by {customer_name}",
             "channel_id": PAYHERO_CHANNEL_ID,
-            "provider": "m-pesa",
+            "provider": "mpesa",
             "callback_url": CALLBACK_URL
         }
 
