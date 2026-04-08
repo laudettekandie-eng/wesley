@@ -6,40 +6,26 @@ import time
 import base64
 
 app = Flask(__name__)
-
-# ✅ Enable CORS
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app)
 
 # ================== ENV VARIABLES ==================
 PAYHERO_API_USERNAME = os.getenv("PAYHERO_API_USERNAME")
 PAYHERO_API_PASSWORD = os.getenv("PAYHERO_API_PASSWORD")
-PAYHERO_CHANNEL_ID = os.getenv("PAYHERO_CHANNEL_ID")
+PAYHERO_CHANNEL_ID = os.getenv("PAYHERO_CHANNEL_ID")  # OPTIONAL
 CALLBACK_URL = os.getenv("CALLBACK_URL")
 
 PAYHERO_URL = "https://backend.payhero.co.ke/api/v2/payments"
-# ==================================================
-
-
-# ✅ Fix preflight (important for frontend)
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-    return response
+# ===================================================
 
 
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"status": "OK", "service": "PayHero Backend"}), 200
+    return jsonify({"status": "OK", "service": "PAYHERO BACKEND LIVE"}), 200
 
 
 # ================== STK PUSH ==================
-@app.route("/api/stk-push", methods=["POST", "OPTIONS"])
+@app.route("/api/stk-push", methods=["POST"])
 def stk_push():
-    if request.method == "OPTIONS":
-        return jsonify({"status": "ok"}), 200
-
     try:
         data = request.get_json(force=True)
 
@@ -55,25 +41,29 @@ def stk_push():
         if phone.startswith("0"):
             phone = "254" + phone[1:]
 
-        # ================= AUTH (Basic) =================
+        # 🔐 Build Basic Auth
         auth_string = f"{PAYHERO_API_USERNAME}:{PAYHERO_API_PASSWORD}"
-        encoded_auth = base64.b64encode(auth_string.encode()).decode()
+        auth_token = base64.b64encode(auth_string.encode()).decode()
 
         headers = {
-            "Authorization": f"Basic {encoded_auth}",
-            "Content-Type": "application/json"
+            "Authorization": f"Basic {auth_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
         }
 
         # ================= PAYLOAD =================
         payload = {
             "amount": int(amount),
             "phone_number": phone,
-            "account_reference": reference,
-            "transaction_desc": f"Payment by {customer_name}",
-            "channel_id": PAYHERO_CHANNEL_ID,
-            "provider": "mpesa",
+            "external_reference": reference,
+            "customer_name": customer_name,
+            "provider": "mpesa",  # ✅ FIXED (no hyphen)
             "callback_url": CALLBACK_URL
         }
+
+        # ✅ ONLY include channel_id if provided
+        if PAYHERO_CHANNEL_ID:
+            payload["channel_id"] = int(PAYHERO_CHANNEL_ID)
 
         # ================= REQUEST =================
         response = requests.post(
@@ -84,40 +74,41 @@ def stk_push():
         )
 
         print("=== STK PUSH REQUEST ===")
+        print("PAYLOAD:", payload)
         print("STATUS:", response.status_code)
         print("RESPONSE:", response.text)
 
-        return jsonify(response.json()), response.status_code
-
-    except requests.exceptions.RequestException as e:
-        print("❌ REQUEST ERROR:", str(e))
-        return jsonify({"error": "Request failed", "details": str(e)}), 500
+        try:
+            return jsonify(response.json()), response.status_code
+        except:
+            return jsonify({"raw_response": response.text}), response.status_code
 
     except Exception as e:
-        print("❌ GENERAL ERROR:", str(e))
-        return jsonify({"error": "Internal server error"}), 500
+        print("❌ ERROR:", str(e))
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
 
 # ================== CALLBACK ==================
 @app.route("/api/payhero/callback", methods=["POST"])
 def payhero_callback():
-    data = request.get_json(force=True)
-
-    print("=== CALLBACK RECEIVED ===")
-    print(data)
-
     try:
+        data = request.get_json(force=True)
+
+        print("=== PAYHERO CALLBACK RECEIVED ===")
+        print(data)
+
         status = data.get("status")
 
         if status == "success":
             print("✅ Payment Successful")
         else:
-            print("❌ Payment Failed or Pending")
+            print("⚠️ Payment Failed / Pending")
+
+        return jsonify({"status": "received"}), 200
 
     except Exception as e:
         print("❌ CALLBACK ERROR:", str(e))
-
-    return jsonify({"status": "received"}), 200
+        return jsonify({"error": "callback failed"}), 500
 
 
 # ================== RUN ==================
