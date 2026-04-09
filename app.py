@@ -11,24 +11,21 @@ CORS(app)
 # ================== ENV VARIABLES ==================
 PAYHERO_API_USERNAME = os.getenv("PAYHERO_API_USERNAME")
 PAYHERO_API_PASSWORD = os.getenv("PAYHERO_API_PASSWORD")
-PAYHERO_CHANNEL_ID = os.getenv("PAYHERO_CHANNEL_ID")  # OPTIONAL
+PAYHERO_AUTH_TOKEN = os.getenv("PAYHERO_AUTH_TOKEN")  # ✅ NEW
+PAYHERO_CHANNEL_ID = os.getenv("PAYHERO_CHANNEL_ID")
 CALLBACK_URL = os.getenv("CALLBACK_URL")
-
 PAYHERO_URL = "https://backend.payhero.co.ke/api/v2/payments"
 # ===================================================
-
 
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "OK", "service": "PAYHERO BACKEND LIVE"}), 200
-
 
 # ================== STK PUSH ==================
 @app.route("/api/stk-push", methods=["POST"])
 def stk_push():
     try:
         data = request.get_json(force=True)
-
         phone = data.get("phone")
         amount = data.get("amount")
         reference = data.get("reference", f"REF_{int(time.time())}")
@@ -41,12 +38,15 @@ def stk_push():
         if phone.startswith("0"):
             phone = "254" + phone[1:]
 
-        # 🔐 Build Basic Auth
-        auth_string = f"{PAYHERO_API_USERNAME}:{PAYHERO_API_PASSWORD}"
-        auth_token = base64.b64encode(auth_string.encode()).decode()
+        # 🔐 Use PAYHERO_AUTH_TOKEN directly if available, else build from username/password
+        if PAYHERO_AUTH_TOKEN:
+            auth_token = PAYHERO_AUTH_TOKEN
+        else:
+            auth_string = f"{PAYHERO_API_USERNAME}:{PAYHERO_API_PASSWORD}"
+            auth_token = "Basic " + base64.b64encode(auth_string.encode()).decode()
 
         headers = {
-            "Authorization": f"Basic {auth_token}",
+            "Authorization": auth_token,
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
@@ -57,11 +57,10 @@ def stk_push():
             "phone_number": phone,
             "external_reference": reference,
             "customer_name": customer_name,
-            "provider": "mpesa",  # ✅ FIXED (no hyphen)
+            "provider": "mpesa",
             "callback_url": CALLBACK_URL
         }
 
-        # ✅ ONLY include channel_id if provided
         if PAYHERO_CHANNEL_ID:
             payload["channel_id"] = int(PAYHERO_CHANNEL_ID)
 
@@ -87,18 +86,15 @@ def stk_push():
         print("❌ ERROR:", str(e))
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
-
 # ================== CALLBACK ==================
 @app.route("/api/payhero/callback", methods=["POST"])
 def payhero_callback():
     try:
         data = request.get_json(force=True)
-
         print("=== PAYHERO CALLBACK RECEIVED ===")
         print(data)
 
         status = data.get("status")
-
         if status == "success":
             print("✅ Payment Successful")
         else:
@@ -109,7 +105,6 @@ def payhero_callback():
     except Exception as e:
         print("❌ CALLBACK ERROR:", str(e))
         return jsonify({"error": "callback failed"}), 500
-
 
 # ================== RUN ==================
 if __name__ == "__main__":
